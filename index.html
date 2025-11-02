@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Water & Soil Monitoring Pro</title>
+  <link href="https://fonts.googleapis.com/css?family=Roboto:400,700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <style>
+    body { font-family: 'Roboto', sans-serif; background: linear-gradient(120deg, #e1ffc7, #a7ffeb, #83c5be); margin: 0;}
+    .container { max-width: 640px; margin: 30px auto; background: #fff; border-radius: 16px; box-shadow: 0 4px 18px rgba(0,128,128,.13); padding: 32px 20px;}
+    h1 { color: #2892d7; margin-bottom: 2px; font-weight: 700; text-align:center;}
+    h2 { margin:16px 0;color: #38b000; font-weight: 400;text-align:center;}
+    .values { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center;}
+    .box { background: #f3f9fe; border-radius: 10px; box-shadow: 0 2px 8px rgba(56, 176, 0, .05); padding: 16px; min-width: 110px; text-align:center; transition: 0.3s;}
+    .box.bad { background: #ffd3d3; border:2px solid #b33400; color: #b33400;}
+    .alert { display:none; padding: 12px; background: #ffe3d8; color: #b33400; border-radius: 8px; margin: 18px 0; font-weight:500;}
+    .tips {background: #e7fbe8; padding:12px; border-radius:8px; color: #348549; font-size:1.04rem; margin-bottom:20px;}
+    .rec {background: #e0f3fc; padding:10px; border-radius:8px; color: #09689b; font-size:1rem; margin-bottom:20px;}
+    canvas {background:#fff; border-radius:8px; margin:0 auto; display:block;}
+    #map { height: 200px; border-radius:14px; margin-bottom:18px;}
+    .login {background: #f7f7ff; padding:16px 12px;margin:18px auto; border-radius:12px;max-width:320px; text-align:center;}
+    .login input[type=email],.login input[type=password]{padding:6px;width:92%;margin:6px 0;}
+    .login button {padding: 6px 13px; margin: 8px 2px; background: #38b000; border:none; color:#fff; border-radius:4px; cursor:pointer;}
+    #userStatus {margin-bottom:12px;font-size:1.1em;color:#38b000;}
+    #locationInput {text-align:center; margin-bottom:18px;padding:10px;background:#f5fff6;border-radius:7px;}
+    #locationInput input {padding:7px;width:160px;border-radius:4px;border:1px solid #b3dcc8;}
+    #viewLabel {font-weight:600; color:#0a5d46;margin-bottom:7px;}
+    .sample-btn {background:#2997ff;color:#fff;border:none;padding:7px 14px;border-radius:4px;margin:8px;cursor:pointer;}
+    .faq {background: #eff7fa; padding:14px; border-radius:10px; font-size:1.03em;margin:17px 0;}
+    .faq h4{margin:10px 0 3px 0;}
+    .faq ul {margin-top:6px;padding-left:20px;}
+    @media (max-width:700px){.container{padding:7px 2px;} .values{flex-direction:column;align-items:center;} canvas{max-width:98vw;}}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Water & Soil Monitoring Pro</h1>
+    <h2>Live Data, Charts, Geo-Mapping & AI Recommendations</h2>
+    <!-- Login Section -->
+    <div class="login" id="loginForm">
+      <div id="userStatus"></div>
+      <input type="email" id="email" placeholder="Email"><br>
+      <input type="password" id="password" placeholder="Password"><br>
+      <button onclick="signup()">Signup</button>
+      <button onclick="login()">Login</button>
+      <button onclick="logout()" style="background:#b33400;">Logout</button>
+    </div>
+    <!-- Main features, hidden until logged in -->
+    <div id="mainContent" style="display:none;">
+      <div id="locationInput">
+        <span id="viewLabel">Viewing your current location</span><br>
+        <input type="text" id="placeInput" placeholder="Enter place/city/town">
+        <button onclick="searchPlace()">Search</button>
+        <button class="sample-btn" onclick="sampleLocation()">Try a sample location</button>
+        <button onclick="resetLocation()" style="background:#29c7c7;">My Location</button>
+      </div>
+      <div id="map"></div>
+      <div class="values" id="sensorValues"></div>
+      <div style="margin-bottom:14px;"><canvas id="phChart" width="370" height="110"></canvas></div>
+      <div class="alert" id="alertBox"></div>
+      <div class="tips" id="contextualTip"></div>
+      <div class="rec" id="recBox"></div>
+      <div class="rec" id="cropBox"></div>
+      <!-- History Table / Export -->
+      <h3 style="text-align:left">History Log</h3>
+      <table id="historyTable" style="width:100%;border-collapse:collapse;font-size:0.97rem">
+        <thead><tr style="background:#effaf6"><th>Time</th><th>Location</th><th>pH</th><th>Turb.</th><th>N</th><th>P</th><th>K</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <button onclick="exportCSV()">Export as CSV</button>
+      <div class="faq">
+        <h4>FAQ & Beginner Help</h4>
+        <ul>
+          <li>Don't know your location? Type a city or village name and hit "Search".</li>
+          <li>Try example places by clicking "Try a sample location".</li>
+          <li>Understanding results: Red boxes show readings outside safe ranges.</li>
+          <li>Export all current results with one click (CSV button above).</li>
+          <li>This site uses simulated data for demo — connect to real sensors for field use!</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+<script>
+let loggedIn = false, currentUser = "", useCustomLocation = false, customLat = null, customLon = null, customPlace = "";
+let userPos = {lat:22.5, lon:80.0}, livePos = {lat:22.5, lon:80.0};
+let map, marker, logHistory = [], phHistory = [], phChartInstance;
+
+// ==== LOGIN ====
+function updateUserStatus() {
+  const userStatus = document.getElementById('userStatus');
+  if (loggedIn) {
+    userStatus.textContent = `Logged in as: ${currentUser}`;
+    document.getElementById('email').style.display = "none";
+    document.getElementById('password').style.display = "none";
+    document.getElementById('mainContent').style.display = "";
+  } else {
+    userStatus.textContent = "Please login or signup to access full features.";
+    document.getElementById('email').style.display = "";
+    document.getElementById('password').style.display = "";
+    document.getElementById('mainContent').style.display = "none";
+  }
+}
+function signup() {
+  let email = document.getElementById('email').value, pw = document.getElementById('password').value;
+  if (!email || !pw) return alert("Enter email, password");
+  localStorage.setItem("user:" + email, pw);
+  alert("Signup successful!");
+}
+function login() {
+  let email = document.getElementById('email').value, pw = document.getElementById('password').value;
+  if (!email || !pw) return alert("Enter email, password");
+  let storedPw = localStorage.getItem("user:" + email);
+  if (!storedPw) return alert("No account found. Signup first.");
+  if (pw !== storedPw) return alert("Password incorrect.");
+  loggedIn = true; currentUser = email;
+  updateUserStatus();
+}
+function logout() { loggedIn = false; currentUser = ""; updateUserStatus(); }
+updateUserStatus();
+
+// ==== MAP / LOCATION ====
+function setupMap() {
+  livePos = {...userPos};
+  if (map) map.remove();
+  map = L.map('map', {zoomControl:true}).setView([livePos.lat, livePos.lon], 5);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+  L.control.scale().addTo(map);
+  marker = L.marker([livePos.lat, livePos.lon]).addTo(map);
+  marker.bindPopup(`<b>Location:</b> My Location<br><span id="popupData"></span>`).openPopup();
+}
+if (navigator.geolocation) {
+  navigator.geolocation.getCurrentPosition(function(pos){
+    userPos = {lat:pos.coords.latitude, lon:pos.coords.longitude};
+    livePos = {...userPos};
+    setupMap();
+  }, function(){ setupMap(); });
+} else { setupMap(); }
+function sampleLocation() {
+  const samples = [
+    {place: "New Delhi", lat: 28.6139, lon: 77.2090},
+    {place:"Kolkata", lat: 22.5726, lon: 88.3639},
+    {place:"Bengaluru", lat: 12.9716, lon: 77.5946}
+  ];
+  let i = Math.floor(Math.random()*samples.length);
+  let s = samples[i];
+  useCustomLocation = true; customLat = s.lat; customLon = s.lon; customPlace = s.place;
+  document.getElementById('viewLabel').textContent = `Viewing: ${customPlace}`;
+  map.setView([customLat, customLon], 13);
+  marker.setLatLng([customLat, customLon]);
+}
+function searchPlace() {
+  let place = document.getElementById('placeInput').value.trim();
+  if (!place) return alert("Enter a place name.");
+  fetch(`https://nominatim.openstreetmap.org/search?format=json&q=`+encodeURIComponent(place))
+    .then(resp=>resp.json()).then(res=>{
+      if(res.length==0) return alert("No results found.");
+      let {lat, lon, display_name} = res[0];
+      useCustomLocation = true; customLat = parseFloat(lat); customLon = parseFloat(lon); customPlace = display_name;
+      document.getElementById('viewLabel').textContent = `Viewing: ${customPlace}`;
+      map.setView([customLat, customLon], 13);
+      marker.setLatLng([customLat, customLon]);
+    })
+}
+function resetLocation() {
+  useCustomLocation = false; customLat = null; customLon = null; customPlace = "";
+  document.getElementById('viewLabel').textContent = "Viewing your current location";
+  map.setView([userPos.lat, userPos.lon], 14); marker.setLatLng([userPos.lat, userPos.lon]);
+}
+// === Update map popup every data refresh
+function updateMapAndPopup(data) {
+  let lat = useCustomLocation ? customLat : userPos.lat;
+  let lon = useCustomLocation ? customLon : userPos.lon;
+  marker.setLatLng([lat, lon]);
+  let popName = data.location;
+  let popHtml = `<b>Location:</b> ${popName}<br/>
+    <b>pH:</b> ${data.pH}<br/>
+    <b>Turbidity:</b> ${data.turbidity} NTU<br/>
+    <b>N:</b> ${data.N} <b>P:</b> ${data.P} <b>K:</b> ${data.K}`;
+  marker.bindPopup(popHtml);
+}
+// ==== DATA, ML, & RENDER ====
+function getSensorData() {
+  let noise = useCustomLocation ? 2 : 0;
+  let n = Math.random();
+  return {
+    pH: +(Math.random()*2+6 + (useCustomLocation ? (customLat+customLon)%1-0.5 : 0)).toFixed(2),
+    turbidity: +(Math.random()*10 + noise).toFixed(1),
+    N: Math.floor(Math.random()*30+5 + noise),
+    P: Math.floor(Math.random()*10+2 + (useCustomLocation?0.5:0)),
+    K: Math.floor(Math.random()*15+3 + noise),
+    location: useCustomLocation ? (customPlace ? customPlace : `${customLat?.toFixed(3)},${customLon?.toFixed(3)}`) : "My Location"
+  };
+}
+function predictCrops(data) {
+  let crops = [];
+  if (data.pH > 6 && data.pH < 7.5 && data.N > 20 && data.P > 5 && data.K > 10 && data.turbidity < 7) {
+    crops = ["Wheat", "Maize", "Barley"];
+  } else if (data.pH > 6.5 && data.K < 10) {
+    crops = ["Potato", "Carrot"];
+  } else if (data.pH < 6 && data.N < 10 && data.turbidity > 8) {
+    crops = ["Sugarcane"];
+  } else {
+    crops = ["Rice", "Soybean"];
+  }
+  return "Recommended crops: " + crops.join(", ");
+}
+function getRecommendations(d) {
+  let recs = [];
+  if (d.pH < 6) recs.push("Add lime to raise soil pH.");
+  if (d.pH > 7.5) recs.push("Use sulfur or organic matter to lower pH.");
+  if (d.N < 15) recs.push("Apply nitrogen fertilizer.");
+  if (d.turbidity > 7) recs.push("Reduce erosion or sediment input.");
+  if (recs.length===0) recs.push("Perfect! All values in optimal range.");
+  return recs.join(" ");
+}
+function getContextualTip(data) {
+  if (data.pH < 6) return "Soil is acidic 🌱";
+  if (data.pH > 7.5) return "Soil is alkaline 🌾";
+  if (data.turbidity > 7) return "Water is highly turbid 💧";
+  if (data.N < 15) return "Low nitrogen in soil 🌾";
+  if (data.K < 10) return "Potassium is low in soil.";
+  return "All readings look healthy!";
+}
+function updateChart(newPh) {
+  if (phHistory.length >= 24) phHistory.shift();
+  phHistory.push(newPh);
+  if (!phChartInstance) {
+    const ctx = document.getElementById('phChart').getContext('2d');
+    phChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: { labels: Array(phHistory.length).fill(''), datasets: [{ label: 'pH Trend', data: phHistory, borderColor:'#2892d7', fill:false }] },
+      options: {scales: {y: {suggestedMin:4, suggestedMax:10}}}
+    });
+  } else {
+    phChartInstance.data.datasets[0].data = phHistory;
+    phChartInstance.data.labels = Array(phHistory.length).fill('');
+    phChartInstance.update();
+  }
+}
+// Dashboard, log, table
+function updateDashboard() {
+  if (!loggedIn) return;
+  let data = getSensorData();
+  updateMapAndPopup(data);
+  logHistory.push({...data, timestamp: Date.now()});
+  let warnings = [], boxClasses = {pH:"",turbidity:"",N:"",P:"",K:""};
+  if (data.pH < 6 || data.pH > 7.5){ boxClasses.pH="bad"; warnings.push("Alert: pH is out of optimal range!"); }
+  if (data.turbidity > 7){ boxClasses.turbidity="bad"; warnings.push("Alert: Turbidity high!"); }
+  if (data.N < 15) boxClasses.N="bad";
+  if (data.K < 10) boxClasses.K="bad";
+
+  document.getElementById('sensorValues').innerHTML = `
+    <div class="box ${boxClasses.pH}"><b>pH</b><br>${data.pH}</div>
+    <div class="box ${boxClasses.turbidity}"><b>Turbidity</b><br>${data.turbidity} NTU</div>
+    <div class="box ${boxClasses.N}"><b>Nitrogen (N)</b><br>${data.N}</div>
+    <div class="box ${boxClasses.P}"><b>Phosphorus (P)</b><br>${data.P}</div>
+    <div class="box ${boxClasses.K}"><b>Potassium (K)</b><br>${data.K}</div>
+  `;
+  document.getElementById('alertBox').style.display = warnings.length?"block":"none";
+  document.getElementById('alertBox').innerText = warnings.join(" ");
+  document.getElementById('recBox').innerText = getRecommendations(data);
+  document.getElementById('cropBox').innerText = predictCrops(data);
+  document.getElementById('contextualTip').innerText = "🔍 " + getContextualTip(data);
+
+  let histTbody = document.getElementById('historyTable').getElementsByTagName('tbody')[0];
+  let row = histTbody.insertRow(0);
+  row.insertCell(0).innerText = (new Date()).toLocaleTimeString();
+  row.insertCell(1).innerText = data.location;
+  row.insertCell(2).innerText = data.pH;
+  row.insertCell(3).innerText = data.turbidity;
+  row.insertCell(4).innerText = data.N;
+  row.insertCell(5).innerText = data.P;
+  row.insertCell(6).innerText = data.K;
+  if (histTbody.rows.length > 20) histTbody.deleteRow(20);
+  localStorage.setItem('history', histTbody.innerHTML);
+  updateChart(data.pH);
+}
+function exportCSV() {
+  const rows = Array.from(document.querySelectorAll("#historyTable tr"));
+  const csv = rows.map(row => Array.from(row.children).map(cell=>cell.innerText).join(",")).join("\n");
+  const blob = new Blob([csv], {type: "text/csv"});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'sensor_history.csv';
+  link.click();
+}
+window.onload = function(){
+  var histTbody = document.getElementById('historyTable').getElementsByTagName('tbody')[0];
+  if (localStorage.getItem('history')) {
+    histTbody.innerHTML = localStorage.getItem('history');
+  }
+  updateUserStatus();
+}
+setInterval(updateDashboard, 2500); // Only shows if logged in
+</script>
+</body>
+</html>
