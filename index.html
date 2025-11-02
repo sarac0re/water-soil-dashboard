@@ -13,6 +13,7 @@
     .container { max-width: 640px; margin: 30px auto; background: #fff; border-radius: 16px; box-shadow: 0 4px 18px rgba(0,128,128,.13); padding: 32px 20px;}
     h1 { color: #2892d7; margin-bottom: 2px; font-weight: 700; text-align:center;}
     h2 { margin:16px 0;color: #38b000; font-weight: 400;text-align:center;}
+    #currentLocation {text-align:center;font-size:1.22em;padding:7px 0 12px 0;color:#09689b;font-weight:600;}
     .values { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center;}
     .box { background: #f3f9fe; border-radius: 10px; box-shadow: 0 2px 8px rgba(56, 176, 0, .05); padding: 16px; min-width: 110px; text-align:center; transition: 0.3s;}
     .box.bad { background: #ffd3d3; border:2px solid #b33400; color: #b33400;}
@@ -39,7 +40,6 @@
   <div class="container">
     <h1>Water & Soil Monitoring Pro</h1>
     <h2>Live Data, Charts, Geo-Mapping & AI Recommendations</h2>
-    <!-- Login Section -->
     <div class="login" id="loginForm">
       <div id="userStatus"></div>
       <input type="email" id="email" placeholder="Email"><br>
@@ -48,7 +48,6 @@
       <button onclick="login()">Login</button>
       <button onclick="logout()" style="background:#b33400;">Logout</button>
     </div>
-    <!-- Main features, hidden until logged in -->
     <div id="mainContent" style="display:none;">
       <div id="locationInput">
         <span id="viewLabel">Viewing your current location</span><br>
@@ -58,16 +57,29 @@
         <button onclick="resetLocation()" style="background:#29c7c7;">My Location</button>
       </div>
       <div id="map"></div>
+      <div id="currentLocation"></div>
       <div class="values" id="sensorValues"></div>
       <div style="margin-bottom:14px;"><canvas id="phChart" width="370" height="110"></canvas></div>
       <div class="alert" id="alertBox"></div>
       <div class="tips" id="contextualTip"></div>
       <div class="rec" id="recBox"></div>
       <div class="rec" id="cropBox"></div>
-      <!-- History Table / Export -->
       <h3 style="text-align:left">History Log</h3>
       <table id="historyTable" style="width:100%;border-collapse:collapse;font-size:0.97rem">
-        <thead><tr style="background:#effaf6"><th>Time</th><th>Location</th><th>pH</th><th>Turb.</th><th>N</th><th>P</th><th>K</th></tr></thead>
+        <thead><tr style="background:#effaf6">
+          <th>Time</th>
+          <th>Location</th>
+          <th>Water Level (m)</th>
+          <th>Flow Rate (m³/s)</th>
+          <th>Rainfall (mm)</th>
+          <th>Evaporation (mm)</th>
+          <th>pH</th>
+          <th>Salinity (ppt)</th>
+          <th>Turbidity</th>
+          <th>N</th>
+          <th>P</th>
+          <th>K</th>
+        </tr></thead>
         <tbody></tbody>
       </table>
       <button onclick="exportCSV()">Export as CSV</button>
@@ -76,7 +88,7 @@
         <ul>
           <li>Don't know your location? Type a city or village name and hit "Search".</li>
           <li>Try example places by clicking "Try a sample location".</li>
-          <li>Understanding results: Red boxes show readings outside safe ranges.</li>
+          <li>Pinpoint any place simply by clicking on the map.</li>
           <li>Export all current results with one click (CSV button above).</li>
           <li>This site uses simulated data for demo — connect to real sensors for field use!</li>
         </ul>
@@ -88,7 +100,6 @@ let loggedIn = false, currentUser = "", useCustomLocation = false, customLat = n
 let userPos = {lat:22.5, lon:80.0}, livePos = {lat:22.5, lon:80.0};
 let map, marker, logHistory = [], phHistory = [], phChartInstance;
 
-// ==== LOGIN ====
 function updateUserStatus() {
   const userStatus = document.getElementById('userStatus');
   if (loggedIn) {
@@ -121,7 +132,16 @@ function login() {
 function logout() { loggedIn = false; currentUser = ""; updateUserStatus(); }
 updateUserStatus();
 
-// ==== MAP / LOCATION ====
+function fetchPlaceName(lat, lon, callback) {
+  fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=17`)
+    .then(resp => resp.json())
+    .then(res => {
+      if (res && res.display_name) callback(res.display_name);
+      else callback(`${lat.toFixed(4)}, ${lon.toFixed(4)}`);
+    })
+    .catch(() => callback(`${lat.toFixed(4)}, ${lon.toFixed(4)}`));
+}
+
 function setupMap() {
   livePos = {...userPos};
   if (map) map.remove();
@@ -130,6 +150,16 @@ function setupMap() {
   L.control.scale().addTo(map);
   marker = L.marker([livePos.lat, livePos.lon]).addTo(map);
   marker.bindPopup(`<b>Location:</b> My Location<br><span id="popupData"></span>`).openPopup();
+  map.on('click', function(e) {
+    useCustomLocation = true;
+    customLat = e.latlng.lat;
+    customLon = e.latlng.lon;
+    fetchPlaceName(customLat, customLon, function(name) {
+      customPlace = name;
+      document.getElementById('viewLabel').textContent = `Pinpointed by map: ${customPlace}`;
+    });
+    marker.setLatLng([customLat, customLon]);
+  });
 }
 if (navigator.geolocation) {
   navigator.geolocation.getCurrentPosition(function(pos){
@@ -140,21 +170,21 @@ if (navigator.geolocation) {
 } else { setupMap(); }
 function sampleLocation() {
   const samples = [
+    {place: "Kumortuli, Kolkata, West Bengal, India", lat: 22.603625, lon: 88.367866},
     {place: "New Delhi", lat: 28.6139, lon: 77.2090},
-    {place:"Kolkata", lat: 22.5726, lon: 88.3639},
-    {place:"Bengaluru", lat: 12.9716, lon: 77.5946}
+    {place: "Bengaluru", lat: 12.9716, lon: 77.5946}
   ];
   let i = Math.floor(Math.random()*samples.length);
   let s = samples[i];
   useCustomLocation = true; customLat = s.lat; customLon = s.lon; customPlace = s.place;
   document.getElementById('viewLabel').textContent = `Viewing: ${customPlace}`;
-  map.setView([customLat, customLon], 13);
   marker.setLatLng([customLat, customLon]);
+  map.setView([customLat, customLon], 13);
 }
 function searchPlace() {
   let place = document.getElementById('placeInput').value.trim();
   if (!place) return alert("Enter a place name.");
-  fetch(`https://nominatim.openstreetmap.org/search?format=json&q=`+encodeURIComponent(place))
+  fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(place)}`)
     .then(resp=>resp.json()).then(res=>{
       if(res.length==0) return alert("No results found.");
       let {lat, lon, display_name} = res[0];
@@ -169,24 +199,31 @@ function resetLocation() {
   document.getElementById('viewLabel').textContent = "Viewing your current location";
   map.setView([userPos.lat, userPos.lon], 14); marker.setLatLng([userPos.lat, userPos.lon]);
 }
-// === Update map popup every data refresh
 function updateMapAndPopup(data) {
   let lat = useCustomLocation ? customLat : userPos.lat;
   let lon = useCustomLocation ? customLon : userPos.lon;
   marker.setLatLng([lat, lon]);
   let popName = data.location;
   let popHtml = `<b>Location:</b> ${popName}<br/>
+    <b>Water Level:</b> ${data.waterLevel} m<br/>
+    <b>Flow Rate:</b> ${data.flowRate} m³/s<br/>
+    <b>Rainfall:</b> ${data.rainfall} mm<br/>
+    <b>Evaporation:</b> ${data.evaporation} mm<br/>
     <b>pH:</b> ${data.pH}<br/>
+    <b>Salinity:</b> ${data.salinity} ppt<br/>
     <b>Turbidity:</b> ${data.turbidity} NTU<br/>
     <b>N:</b> ${data.N} <b>P:</b> ${data.P} <b>K:</b> ${data.K}`;
   marker.bindPopup(popHtml);
 }
-// ==== DATA, ML, & RENDER ====
 function getSensorData() {
   let noise = useCustomLocation ? 2 : 0;
-  let n = Math.random();
   return {
-    pH: +(Math.random()*2+6 + (useCustomLocation ? (customLat+customLon)%1-0.5 : 0)).toFixed(2),
+    waterLevel: +(Math.random()*10 + (useCustomLocation ? (customLat%5) : 0)).toFixed(2), // meters
+    flowRate: +(Math.random()*50 + (useCustomLocation ? (customLon%30) : 0)).toFixed(2), // m3/s
+    rainfall: +(Math.random()*20).toFixed(2), // mm
+    evaporation: +(Math.random()*10).toFixed(2), // mm
+    pH:  +(Math.random()*2+6 + (useCustomLocation ? (customLat+customLon)%1-0.5 : 0)).toFixed(2),
+    salinity: +(Math.random()*1.5 + (useCustomLocation ? 0.3 : 0)).toFixed(2), // ppt
     turbidity: +(Math.random()*10 + noise).toFixed(1),
     N: Math.floor(Math.random()*30+5 + noise),
     P: Math.floor(Math.random()*10+2 + (useCustomLocation?0.5:0)),
@@ -240,11 +277,12 @@ function updateChart(newPh) {
     phChartInstance.update();
   }
 }
-// Dashboard, log, table
 function updateDashboard() {
   if (!loggedIn) return;
   let data = getSensorData();
   updateMapAndPopup(data);
+  document.getElementById('currentLocation').innerText =
+    `Tracking location: ${data.location}`;
   logHistory.push({...data, timestamp: Date.now()});
   let warnings = [], boxClasses = {pH:"",turbidity:"",N:"",P:"",K:""};
   if (data.pH < 6 || data.pH > 7.5){ boxClasses.pH="bad"; warnings.push("Alert: pH is out of optimal range!"); }
@@ -253,7 +291,12 @@ function updateDashboard() {
   if (data.K < 10) boxClasses.K="bad";
 
   document.getElementById('sensorValues').innerHTML = `
+    <div class="box"><b>Water Level</b><br>${data.waterLevel} m</div>
+    <div class="box"><b>Flow Rate</b><br>${data.flowRate} m³/s</div>
+    <div class="box"><b>Rainfall</b><br>${data.rainfall} mm</div>
+    <div class="box"><b>Evaporation</b><br>${data.evaporation} mm</div>
     <div class="box ${boxClasses.pH}"><b>pH</b><br>${data.pH}</div>
+    <div class="box"><b>Salinity</b><br>${data.salinity} ppt</div>
     <div class="box ${boxClasses.turbidity}"><b>Turbidity</b><br>${data.turbidity} NTU</div>
     <div class="box ${boxClasses.N}"><b>Nitrogen (N)</b><br>${data.N}</div>
     <div class="box ${boxClasses.P}"><b>Phosphorus (P)</b><br>${data.P}</div>
@@ -269,11 +312,16 @@ function updateDashboard() {
   let row = histTbody.insertRow(0);
   row.insertCell(0).innerText = (new Date()).toLocaleTimeString();
   row.insertCell(1).innerText = data.location;
-  row.insertCell(2).innerText = data.pH;
-  row.insertCell(3).innerText = data.turbidity;
-  row.insertCell(4).innerText = data.N;
-  row.insertCell(5).innerText = data.P;
-  row.insertCell(6).innerText = data.K;
+  row.insertCell(2).innerText = data.waterLevel;
+  row.insertCell(3).innerText = data.flowRate;
+  row.insertCell(4).innerText = data.rainfall;
+  row.insertCell(5).innerText = data.evaporation;
+  row.insertCell(6).innerText = data.pH;
+  row.insertCell(7).innerText = data.salinity;
+  row.insertCell(8).innerText = data.turbidity;
+  row.insertCell(9).innerText = data.N;
+  row.insertCell(10).innerText = data.P;
+  row.insertCell(11).innerText = data.K;
   if (histTbody.rows.length > 20) histTbody.deleteRow(20);
   localStorage.setItem('history', histTbody.innerHTML);
   updateChart(data.pH);
@@ -298,3 +346,4 @@ setInterval(updateDashboard, 2500); // Only shows if logged in
 </script>
 </body>
 </html>
+
